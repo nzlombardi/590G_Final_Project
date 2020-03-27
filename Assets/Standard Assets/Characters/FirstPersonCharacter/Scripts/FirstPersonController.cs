@@ -70,7 +70,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             // the jump state needs to read here to make sure it is not missed
             m_Jump = CrossPlatformInputManager.GetButton("Jump");
 
-            if(m_Jumping)
+            if(m_Jumping || !m_CharacterController.isGrounded)
             {
                 m_DoubleJump = CrossPlatformInputManager.GetButtonDown("Jump");
             }
@@ -132,7 +132,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             }
             else
             {   
-                if(m_DoubleJumpAvailable && m_Jumping && m_DoubleJump)  // Double Jump
+                if(m_DoubleJumpAvailable && m_DoubleJump)  // Double Jump
                 {
                     // Adjust x and z movement speed based off of input
                     // Clamp it, if they are already moving faster in that direction dont update, else update
