@@ -32,9 +32,6 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private Camera m_Camera;
         private bool m_Jump;
         private bool m_DoubleJump;
-        private Vector3 m_LastWallrunNormal = Vector3.zero;
-        private Vector3 m_CurWallrunNormal = Vector3.zero;
-        private bool m_IsWallrunning;
         private bool m_DoubleJumpAvailable;
         private float m_YRotation;
         private Vector2 m_Input;
@@ -62,7 +59,6 @@ namespace UnityStandardAssets.Characters.FirstPerson
             m_AudioSource = GetComponent<AudioSource>();
 			m_MouseLook.Init(transform , m_Camera.transform);
             m_DoubleJumpAvailable = true;
-            m_IsWallrunning = false;
         }
 
 
@@ -90,13 +86,6 @@ namespace UnityStandardAssets.Characters.FirstPerson
             if (!m_CharacterController.isGrounded && !m_Jumping && m_PreviouslyGrounded)
             {
                 m_MoveDir.y = 0f;
-            }
-
-            if(m_CollisionFlags != CollisionFlags.Sides && m_IsWallrunning)
-            {
-                Debug.Log("Exitting wallrun");
-                m_IsWallrunning = false;
-                m_LastWallrunNormal = m_CurWallrunNormal;
             }
 
             m_PreviouslyGrounded = m_CharacterController.isGrounded;
@@ -143,17 +132,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             }
             else
             {   
-                if (m_IsWallrunning) // Wall run
-                {
-                    Debug.Log("Wallrunning on wall with normal " + m_CurWallrunNormal);
-                    Debug.Log("desiredMove = " + desiredMove);
-                    desiredMove = Vector3.ProjectOnPlane(desiredMove, m_CurWallrunNormal).normalized;
-                    //m_MoveDir.x = desiredMove.x * speed * 1.5f;
-                    //m_MoveDir.z = desiredMove.z * speed * 1.5f;
-                    m_MoveDir -= m_CurWallrunNormal * 0.1f;
-                    m_MoveDir += Physics.gravity*m_GravityMultiplier*Time.fixedDeltaTime*0.5f;
-                }
-                else if(m_DoubleJumpAvailable && m_Jumping && m_DoubleJump)  // Double Jump
+                if(m_DoubleJumpAvailable && m_Jumping && m_DoubleJump)  // Double Jump
                 {
                     // Adjust x and z movement speed based off of input
                     // Clamp it, if they are already moving faster in that direction dont update, else update
@@ -316,19 +295,6 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody body = hit.collider.attachedRigidbody;
-
-            if (m_CollisionFlags == CollisionFlags.Sides && (body == null || body.isKinematic) && !m_IsWallrunning)
-            {
-                Debug.Log("Touched new wall");
-                float wallAngle = Vector3.Angle(hit.normal, Vector3.up);
-                float lastAngle = Vector3.Angle(hit.normal, m_LastWallrunNormal);
-                if(wallAngle == 90.0f && (m_LastWallrunNormal.magnitude == 0 || lastAngle > 45.0f))
-                {
-                    Debug.Log("Enabling wallrunning");
-                    m_IsWallrunning = true;
-                    m_CurWallrunNormal = hit.normal;
-                }
-            }
 
             //dont move the rigidbody if the character is on top of it
             if (m_CollisionFlags == CollisionFlags.Below)
