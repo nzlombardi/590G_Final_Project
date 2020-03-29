@@ -12,6 +12,9 @@ namespace UnityStandardAssets.Characters.FirstPerson
     {
         [SerializeField] private bool m_IsWalking;
         [SerializeField] private float m_WalkSpeed;
+        [SerializeField] private float m_CrouchSpeed;
+        [SerializeField] private float m_CrouchHeightMultiplier;
+        [SerializeField] private float m_GroundPoundInitalVelocity;
         [SerializeField] private float m_RunSpeed;
         [SerializeField] [Range(0f, 1f)] private float m_RunstepLenghten;
         [SerializeField] private float m_JumpSpeed;
@@ -30,6 +33,9 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private AudioClip m_LandSound;           // the sound played when character touches back on ground.
 
         private Camera m_Camera;
+        private bool m_Crouch;
+        private bool m_IsCrouching;
+        private float m_OriginalHeight;
         private bool m_Jump;
         private bool m_DoubleJump;
         private bool m_DoubleJumpAvailable;
@@ -40,6 +46,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private CollisionFlags m_CollisionFlags;
         private bool m_PreviouslyGrounded;
         private Vector3 m_OriginalCameraPosition;
+        private Vector3 m_CenterCameraPosition;
         private float m_StepCycle;
         private float m_NextStep;
         private bool m_Jumping;
@@ -59,6 +66,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             m_AudioSource = GetComponent<AudioSource>();
 			m_MouseLook.Init(transform , m_Camera.transform);
             m_DoubleJumpAvailable = true;
+            m_OriginalHeight = m_CharacterController.height;
         }
 
 
@@ -88,7 +96,46 @@ namespace UnityStandardAssets.Characters.FirstPerson
                 m_MoveDir.y = 0f;
             }
 
+            UpdateCrouching();
+            
             m_PreviouslyGrounded = m_CharacterController.isGrounded;
+        }
+
+        private void UpdateCrouching()
+        {
+            if(m_Crouch)    // Crouch button is pressed
+            {
+                if(!m_IsCrouching)
+                {
+                    m_IsCrouching = true;
+                    m_CharacterController.height = m_OriginalHeight * m_CrouchHeightMultiplier;
+                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
+                    transform.position -= new Vector3(0, heightDiff/2, 0);
+                    m_CenterCameraPosition = m_Camera.transform.localPosition;
+                }
+                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, new Vector3(0, 0.5f, 0), 10*Time.deltaTime);
+            }
+            else if(m_IsCrouching && !m_Crouch) // Crouching button is let go and the player was crouching
+            {   
+                // Only unable to uncrouch if there is room above the player
+                RaycastHit hit;
+                bool ceilingAbove = Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.up, out hit,
+                                2f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
+                                // The value of 2f is arbitrary, need to find a better value
+                if(!ceilingAbove)
+                {
+                    m_IsCrouching = false;
+                    m_CharacterController.height = m_OriginalHeight;
+                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
+                    transform.position += new Vector3(0, heightDiff/2, 0);
+                    m_CenterCameraPosition = m_Camera.transform.localPosition;
+                }
+            }
+            else
+            {   
+                // Interpolate camera to orignal position
+                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, m_OriginalCameraPosition, 10*Time.deltaTime);
+            }
         }
 
 
@@ -155,7 +202,16 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_DoubleJumpAvailable = false;
                 }
                 else
-                {
+                {   
+                    // Ground pound
+                    if (Input.GetKeyDown(KeyCode.C) || Input.GetKeyDown(KeyCode.LeftControl))
+                    {
+                        if(m_MoveDir.y > m_GroundPoundInitalVelocity)
+                        {
+                            m_MoveDir.y = m_GroundPoundInitalVelocity;
+                        }
+                    }
+
                     // Air Accelerate - Based off of Source engine air control
                     // https://github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/game/shared/gamemovement.cpp#L1707
 
@@ -247,7 +303,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             else
             {
                 newCameraPosition = m_Camera.transform.localPosition;
-                newCameraPosition.y = m_OriginalCameraPosition.y - m_JumpBob.Offset();
+                newCameraPosition.y = m_CenterCameraPosition.y - m_JumpBob.Offset();
             }
             m_Camera.transform.localPosition = newCameraPosition;
         }
@@ -261,13 +317,26 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
             bool waswalking = m_IsWalking;
 
+            // Check if player is crouching
+            m_Crouch = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
+
 #if !MOBILE_INPUT
             // On standalone builds, walk/run speed is modified by a key press.
             // keep track of whether or not the character is walking or running
             m_IsWalking = !Input.GetKey(KeyCode.LeftShift);
-#endif
-            // set the desired speed to be walking or running
-            speed = m_IsWalking ? m_WalkSpeed : m_RunSpeed;
+#endif  
+
+            // Default movement speed for airborne calculations
+            speed = m_WalkSpeed;
+
+            // Modify speed based off of input
+            if(m_CharacterController.isGrounded)
+            {
+                // set the desired speed to be walking, running or crouching
+                speed = m_IsWalking ? m_WalkSpeed : m_RunSpeed;
+                speed = m_IsCrouching ? m_CrouchSpeed : speed;
+            }
+
             m_Input = new Vector2(horizontal, vertical);
 
             // normalize input if it exceeds 1 in combined length:
