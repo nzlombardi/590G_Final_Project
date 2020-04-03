@@ -15,6 +15,8 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private float m_CrouchSpeed;
         [SerializeField] private float m_CrouchHeightMultiplier;
         [SerializeField] private float m_GroundPoundInitalVelocity;
+        [SerializeField] private float m_SlideFriction;
+        [SerializeField] private float m_SlideJumpBoostSpeed;
         [SerializeField] private float m_RunSpeed;
         [SerializeField] [Range(0f, 1f)] private float m_RunstepLenghten;
         [SerializeField] private float m_JumpSpeed;
@@ -36,6 +38,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private bool m_Crouch;
         private bool m_IsCrouching;
         private float m_OriginalHeight;
+        private bool m_IsSliding;
         private bool m_Jump;
         private bool m_DoubleJump;
         private bool m_DoubleJumpAvailable;
@@ -87,7 +90,10 @@ namespace UnityStandardAssets.Characters.FirstPerson
             {
                 StartCoroutine(m_JumpBob.DoBobCycle());
                 PlayLandingSound();
-                m_MoveDir.y = 0f;
+
+                // This value was changed from the default 0f
+                // it fixes a bug where the landing sound would play multiple times when sliding from a jump
+                m_MoveDir.y = -m_StickToGroundForce;
                 m_Jumping = false;
                 m_DoubleJumpAvailable = true;
             }
@@ -113,14 +119,14 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     transform.position -= new Vector3(0, heightDiff/2, 0);
                     m_CenterCameraPosition = m_Camera.transform.localPosition;
                 }
-                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, new Vector3(0, 0.5f, 0), 10*Time.deltaTime);
+                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, new Vector3(0, 0.2f, 0), 10*Time.deltaTime);
             }
             else if(m_IsCrouching && !m_Crouch) // Crouching button is let go and the player was crouching
             {   
                 // Only unable to uncrouch if there is room above the player
                 RaycastHit hit;
                 bool ceilingAbove = Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.up, out hit,
-                                2f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
+                                0.9f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
                                 // The value of 2f is arbitrary, need to find a better value
                 if(!ceilingAbove)
                 {
@@ -159,7 +165,10 @@ namespace UnityStandardAssets.Characters.FirstPerson
             Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.down, out hitInfo,
                                m_CharacterController.height/2f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
             desiredMove = Vector3.ProjectOnPlane(desiredMove, hitInfo.normal).normalized;
-            //Debug.Log("desiredMove = " + desiredMove);
+
+            // Get relative ground speed for vector calculations and comparisons
+            Vector3 XZGroundDir = new Vector3(m_MoveDir.x, 0, m_MoveDir.z);
+            float trueGroundSpeed = Vector3.ProjectOnPlane(XZGroundDir, hitInfo.normal).magnitude;
 
             if (m_CharacterController.isGrounded)
             {
@@ -169,9 +178,44 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     PlayJumpSound();
                     m_Jump = false;
                     m_Jumping = true;
+
+                    // Give a speed boost along x-z plane
+                    if(m_IsSliding)
+                    {   
+                        if (trueGroundSpeed < m_SlideJumpBoostSpeed){
+                            XZGroundDir = XZGroundDir.normalized * m_SlideJumpBoostSpeed;
+                        }
+                        m_MoveDir.x = XZGroundDir.x;
+                        m_MoveDir.z = XZGroundDir.z;
+                        m_IsSliding = false;
+                    }
+                }
+                else if ((!m_IsWalking || m_IsSliding) && m_Crouch && m_IsCrouching && trueGroundSpeed - 0.1f > m_CrouchSpeed)  // Sliding
+                {
+                    m_IsSliding = true;
+
+                    // Find downwards direction of slope, take x and z components of normal and project it onto the plane denoted by normal of slope
+                    Vector3 slopeXZDirection = new Vector3(hitInfo.normal.x, 0, hitInfo.normal.z);
+                    Vector3 slopeGradient = Vector3.ProjectOnPlane(slopeXZDirection, hitInfo.normal).normalized;
+
+                    Vector3 gravitySlopeForce = Vector3.Project(Physics.gravity, slopeGradient);
+                    Vector3 gravityNormalForce = Vector3.Project(Physics.gravity, -hitInfo.normal);
+                    
+                    Vector3 accelerationDueToSlope = gravitySlopeForce;
+                    Vector3 accelerationDueToFriction = -m_MoveDir.normalized * gravityNormalForce.magnitude * m_SlideFriction;
+
+                    m_MoveDir += (accelerationDueToSlope + accelerationDueToFriction) * Time.fixedDeltaTime;
+
+                    // Give player some influence in direction, but not add to sliding
+                    Vector3 playerInfluence = Vector3.Project(desiredMove, Vector3.Cross(m_MoveDir, Vector3.up));
+                    float oldMagnitude = m_MoveDir.magnitude;
+                    m_MoveDir += playerInfluence * 0.2f; 
+                    m_MoveDir = m_MoveDir.normalized * oldMagnitude;
                 }
                 else
                 {
+                    m_IsSliding = false;
+
                     m_MoveDir.x = desiredMove.x*speed;
                     m_MoveDir.z = desiredMove.z*speed;
                     m_MoveDir.y = -m_StickToGroundForce;
@@ -253,7 +297,9 @@ namespace UnityStandardAssets.Characters.FirstPerson
         {
             if (m_CharacterController.velocity.sqrMagnitude > 0 && (m_Input.x != 0 || m_Input.y != 0))
             {
-                m_StepCycle += (m_CharacterController.velocity.magnitude + (speed*(m_IsWalking ? 1f : m_RunstepLenghten)))*
+                float cycleMultiplier = speed*(m_IsWalking ? 1f : m_RunstepLenghten);
+                if (m_IsCrouching) cycleMultiplier = speed * 2f;
+                m_StepCycle += (m_CharacterController.velocity.magnitude + cycleMultiplier)*
                              Time.fixedDeltaTime;
             }
 
@@ -270,7 +316,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
         private void PlayFootStepAudio()
         {
-            if (!m_CharacterController.isGrounded)
+            if (!m_CharacterController.isGrounded || m_IsSliding)
             {
                 return;
             }
