@@ -12,6 +12,11 @@ namespace UnityStandardAssets.Characters.FirstPerson
     {
         [SerializeField] private bool m_IsWalking;
         [SerializeField] private float m_WalkSpeed;
+        [SerializeField] private float m_CrouchSpeed;
+        [SerializeField] private float m_CrouchHeightMultiplier;
+        [SerializeField] private float m_GroundPoundInitalVelocity;
+        [SerializeField] private float m_SlideFriction;
+        [SerializeField] private float m_SlideJumpBoostSpeed;
         [SerializeField] private float m_RunSpeed;
         [SerializeField] [Range(0f, 1f)] private float m_RunstepLenghten;
         [SerializeField] private float m_JumpSpeed;
@@ -30,11 +35,12 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private AudioClip m_LandSound;           // the sound played when character touches back on ground.
 
         private Camera m_Camera;
+        private bool m_Crouch;
+        private bool m_IsCrouching;
+        private float m_OriginalHeight;
+        private bool m_IsSliding;
         private bool m_Jump;
         private bool m_DoubleJump;
-        private Vector3 m_LastWallrunNormal = Vector3.zero;
-        private Vector3 m_CurWallrunNormal = Vector3.zero;
-        private bool m_IsWallrunning;
         private bool m_DoubleJumpAvailable;
         private float m_YRotation;
         private Vector2 m_Input;
@@ -43,6 +49,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private CollisionFlags m_CollisionFlags;
         private bool m_PreviouslyGrounded;
         private Vector3 m_OriginalCameraPosition;
+        private Vector3 m_CenterCameraPosition;
         private float m_StepCycle;
         private float m_NextStep;
         private bool m_Jumping;
@@ -62,7 +69,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             m_AudioSource = GetComponent<AudioSource>();
 			m_MouseLook.Init(transform , m_Camera.transform);
             m_DoubleJumpAvailable = true;
-            m_IsWallrunning = false;
+            m_OriginalHeight = m_CharacterController.height;
         }
 
 
@@ -74,7 +81,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             // the jump state needs to read here to make sure it is not missed
             m_Jump = CrossPlatformInputManager.GetButton("Jump");
 
-            if(m_Jumping)
+            if(m_Jumping || !m_CharacterController.isGrounded)
             {
                 m_DoubleJump = CrossPlatformInputManager.GetButtonDown("Jump");
             }
@@ -83,7 +90,10 @@ namespace UnityStandardAssets.Characters.FirstPerson
             {
                 StartCoroutine(m_JumpBob.DoBobCycle());
                 PlayLandingSound();
-                m_MoveDir.y = 0f;
+
+                // This value was changed from the default 0f
+                // it fixes a bug where the landing sound would play multiple times when sliding from a jump
+                m_MoveDir.y = -m_StickToGroundForce;
                 m_Jumping = false;
                 m_DoubleJumpAvailable = true;
             }
@@ -92,14 +102,46 @@ namespace UnityStandardAssets.Characters.FirstPerson
                 m_MoveDir.y = 0f;
             }
 
-            if(m_CollisionFlags != CollisionFlags.Sides && m_IsWallrunning)
-            {
-                Debug.Log("Exitting wallrun");
-                m_IsWallrunning = false;
-                m_LastWallrunNormal = m_CurWallrunNormal;
-            }
-
+            UpdateCrouching();
+            
             m_PreviouslyGrounded = m_CharacterController.isGrounded;
+        }
+
+        private void UpdateCrouching()
+        {
+            if(m_Crouch)    // Crouch button is pressed
+            {
+                if(!m_IsCrouching)
+                {
+                    m_IsCrouching = true;
+                    m_CharacterController.height = m_OriginalHeight * m_CrouchHeightMultiplier;
+                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
+                    transform.position -= new Vector3(0, heightDiff/2, 0);
+                    m_CenterCameraPosition = m_Camera.transform.localPosition;
+                }
+                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, new Vector3(0, 0.2f, 0), 10*Time.deltaTime);
+            }
+            else if(m_IsCrouching && !m_Crouch) // Crouching button is let go and the player was crouching
+            {   
+                // Only unable to uncrouch if there is room above the player
+                RaycastHit hit;
+                bool ceilingAbove = Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.up, out hit,
+                                0.9f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
+                                // The value of 2f is arbitrary, need to find a better value
+                if(!ceilingAbove)
+                {
+                    m_IsCrouching = false;
+                    m_CharacterController.height = m_OriginalHeight;
+                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
+                    transform.position += new Vector3(0, heightDiff/2, 0);
+                    m_CenterCameraPosition = m_Camera.transform.localPosition;
+                }
+            }
+            else
+            {   
+                // Interpolate camera to orignal position
+                m_Camera.transform.localPosition = Vector3.Lerp(m_Camera.transform.localPosition, m_OriginalCameraPosition, 10*Time.deltaTime);
+            }
         }
 
 
@@ -123,7 +165,10 @@ namespace UnityStandardAssets.Characters.FirstPerson
             Physics.SphereCast(transform.position, m_CharacterController.radius, Vector3.down, out hitInfo,
                                m_CharacterController.height/2f, Physics.AllLayers, QueryTriggerInteraction.Ignore);
             desiredMove = Vector3.ProjectOnPlane(desiredMove, hitInfo.normal).normalized;
-            //Debug.Log("desiredMove = " + desiredMove);
+
+            // Get relative ground speed for vector calculations and comparisons
+            Vector3 XZGroundDir = new Vector3(m_MoveDir.x, 0, m_MoveDir.z);
+            float trueGroundSpeed = Vector3.ProjectOnPlane(XZGroundDir, hitInfo.normal).magnitude;
 
             if (m_CharacterController.isGrounded)
             {
@@ -133,9 +178,44 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     PlayJumpSound();
                     m_Jump = false;
                     m_Jumping = true;
+
+                    // Give a speed boost along x-z plane
+                    if(m_IsSliding)
+                    {   
+                        if (trueGroundSpeed < m_SlideJumpBoostSpeed){
+                            XZGroundDir = XZGroundDir.normalized * m_SlideJumpBoostSpeed;
+                        }
+                        m_MoveDir.x = XZGroundDir.x;
+                        m_MoveDir.z = XZGroundDir.z;
+                        m_IsSliding = false;
+                    }
+                }
+                else if ((!m_IsWalking || m_IsSliding) && m_Crouch && m_IsCrouching && trueGroundSpeed - 0.1f > m_CrouchSpeed)  // Sliding
+                {
+                    m_IsSliding = true;
+
+                    // Find downwards direction of slope, take x and z components of normal and project it onto the plane denoted by normal of slope
+                    Vector3 slopeXZDirection = new Vector3(hitInfo.normal.x, 0, hitInfo.normal.z);
+                    Vector3 slopeGradient = Vector3.ProjectOnPlane(slopeXZDirection, hitInfo.normal).normalized;
+
+                    Vector3 gravitySlopeForce = Vector3.Project(Physics.gravity, slopeGradient);
+                    Vector3 gravityNormalForce = Vector3.Project(Physics.gravity, -hitInfo.normal);
+                    
+                    Vector3 accelerationDueToSlope = gravitySlopeForce;
+                    Vector3 accelerationDueToFriction = -m_MoveDir.normalized * gravityNormalForce.magnitude * m_SlideFriction;
+
+                    m_MoveDir += (accelerationDueToSlope + accelerationDueToFriction) * Time.fixedDeltaTime;
+
+                    // Give player some influence in direction, but not add to sliding
+                    Vector3 playerInfluence = Vector3.Project(desiredMove, Vector3.Cross(m_MoveDir, Vector3.up));
+                    float oldMagnitude = m_MoveDir.magnitude;
+                    m_MoveDir += playerInfluence * 0.2f; 
+                    m_MoveDir = m_MoveDir.normalized * oldMagnitude;
                 }
                 else
                 {
+                    m_IsSliding = false;
+
                     m_MoveDir.x = desiredMove.x*speed;
                     m_MoveDir.z = desiredMove.z*speed;
                     m_MoveDir.y = -m_StickToGroundForce;
@@ -143,17 +223,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             }
             else
             {   
-                if (m_IsWallrunning) // Wall run
-                {
-                    Debug.Log("Wallrunning on wall with normal " + m_CurWallrunNormal);
-                    Debug.Log("desiredMove = " + desiredMove);
-                    desiredMove = Vector3.ProjectOnPlane(desiredMove, m_CurWallrunNormal).normalized;
-                    //m_MoveDir.x = desiredMove.x * speed * 1.5f;
-                    //m_MoveDir.z = desiredMove.z * speed * 1.5f;
-                    m_MoveDir -= m_CurWallrunNormal * 0.1f;
-                    m_MoveDir += Physics.gravity*m_GravityMultiplier*Time.fixedDeltaTime*0.5f;
-                }
-                else if(m_DoubleJumpAvailable && m_Jumping && m_DoubleJump)  // Double Jump
+                if(m_DoubleJumpAvailable && m_DoubleJump)  // Double Jump
                 {
                     // Adjust x and z movement speed based off of input
                     // Clamp it, if they are already moving faster in that direction dont update, else update
@@ -176,7 +246,16 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_DoubleJumpAvailable = false;
                 }
                 else
-                {
+                {   
+                    // Ground pound
+                    if (Input.GetKeyDown(KeyCode.C) || Input.GetKeyDown(KeyCode.LeftControl))
+                    {
+                        if(m_MoveDir.y > m_GroundPoundInitalVelocity)
+                        {
+                            m_MoveDir.y = m_GroundPoundInitalVelocity;
+                        }
+                    }
+
                     // Air Accelerate - Based off of Source engine air control
                     // https://github.com/ValveSoftware/source-sdk-2013/blob/master/mp/src/game/shared/gamemovement.cpp#L1707
 
@@ -218,7 +297,9 @@ namespace UnityStandardAssets.Characters.FirstPerson
         {
             if (m_CharacterController.velocity.sqrMagnitude > 0 && (m_Input.x != 0 || m_Input.y != 0))
             {
-                m_StepCycle += (m_CharacterController.velocity.magnitude + (speed*(m_IsWalking ? 1f : m_RunstepLenghten)))*
+                float cycleMultiplier = speed*(m_IsWalking ? 1f : m_RunstepLenghten);
+                if (m_IsCrouching) cycleMultiplier = speed * 2f;
+                m_StepCycle += (m_CharacterController.velocity.magnitude + cycleMultiplier)*
                              Time.fixedDeltaTime;
             }
 
@@ -235,7 +316,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
         private void PlayFootStepAudio()
         {
-            if (!m_CharacterController.isGrounded)
+            if (!m_CharacterController.isGrounded || m_IsSliding)
             {
                 return;
             }
@@ -268,7 +349,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             else
             {
                 newCameraPosition = m_Camera.transform.localPosition;
-                newCameraPosition.y = m_OriginalCameraPosition.y - m_JumpBob.Offset();
+                newCameraPosition.y = m_CenterCameraPosition.y - m_JumpBob.Offset();
             }
             m_Camera.transform.localPosition = newCameraPosition;
         }
@@ -282,13 +363,26 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
             bool waswalking = m_IsWalking;
 
+            // Check if player is crouching
+            m_Crouch = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.C);
+
 #if !MOBILE_INPUT
             // On standalone builds, walk/run speed is modified by a key press.
             // keep track of whether or not the character is walking or running
             m_IsWalking = !Input.GetKey(KeyCode.LeftShift);
-#endif
-            // set the desired speed to be walking or running
-            speed = m_IsWalking ? m_WalkSpeed : m_RunSpeed;
+#endif  
+
+            // Default movement speed for airborne calculations
+            speed = m_WalkSpeed;
+
+            // Modify speed based off of input
+            if(m_CharacterController.isGrounded)
+            {
+                // set the desired speed to be walking, running or crouching
+                speed = m_IsWalking ? m_WalkSpeed : m_RunSpeed;
+                speed = m_IsCrouching ? m_CrouchSpeed : speed;
+            }
+
             m_Input = new Vector2(horizontal, vertical);
 
             // normalize input if it exceeds 1 in combined length:
@@ -316,19 +410,6 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody body = hit.collider.attachedRigidbody;
-
-            if (m_CollisionFlags == CollisionFlags.Sides && (body == null || body.isKinematic) && !m_IsWallrunning)
-            {
-                Debug.Log("Touched new wall");
-                float wallAngle = Vector3.Angle(hit.normal, Vector3.up);
-                float lastAngle = Vector3.Angle(hit.normal, m_LastWallrunNormal);
-                if(wallAngle == 90.0f && (m_LastWallrunNormal.magnitude == 0 || lastAngle > 45.0f))
-                {
-                    Debug.Log("Enabling wallrunning");
-                    m_IsWallrunning = true;
-                    m_CurWallrunNormal = hit.normal;
-                }
-            }
 
             //dont move the rigidbody if the character is on top of it
             if (m_CollisionFlags == CollisionFlags.Below)
