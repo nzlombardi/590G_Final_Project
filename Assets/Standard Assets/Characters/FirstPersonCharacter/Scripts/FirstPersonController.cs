@@ -130,10 +130,11 @@ namespace UnityStandardAssets.Characters.FirstPerson
                                 // The value of 2f is arbitrary, need to find a better value
                 if(!ceilingAbove)
                 {
+                    float halfHeightDiff = (m_OriginalHeight - m_CharacterController.height) / 2.0f;
+                    
                     m_IsCrouching = false;
                     m_CharacterController.height = m_OriginalHeight;
-                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
-                    transform.position += new Vector3(0, heightDiff/2, 0);
+                    transform.position += new Vector3(0, halfHeightDiff, 0);
                     m_CenterCameraPosition = m_Camera.transform.localPosition;
                 }
             }
