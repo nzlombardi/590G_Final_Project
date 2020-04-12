@@ -450,7 +450,9 @@ MonoBehaviour:
   minHookDistance: 3
   hookPreset: {fileID: 54102974802156994, guid: d3b4236fc24bb465b8924eddc792ede0,
     type: 2}
+  ropePreset: {fileID: 1605008767254840, guid: 30d3254ddf8fc42b8957883d6cb887c3, type: 2}
   currentHook: {fileID: 0}
+  currentRope: {fileID: 0}
   playerCamera: {fileID: 1155100706}
   playerController: {fileID: 390982409}
 --- !u!114 &390982409 stripped

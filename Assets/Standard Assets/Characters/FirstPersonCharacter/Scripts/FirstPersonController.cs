@@ -213,7 +213,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_MoveDir += grappleTension * Time.fixedDeltaTime;
                     m_MoveDir += Physics.gravity*m_GravityMultiplier*Time.fixedDeltaTime;
 
-                    // new problem, this just evens out the force, need to make distance between player and grapple point decreasing or static...
+                    // even out the force, need to make distance between player and grapple point decreasing or static...
                     if (Vector3.Dot(m_MoveDir, playerToGrapplePoint) < 0)
                     {
                         Vector3 additionalTensionNeeded = -Vector3.Project(m_MoveDir, playerToGrapplePoint);
@@ -236,7 +236,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_Jump = false;
                     m_Jumping = true;
 
-                    // Give a speed boost along x-z plane
+                    // Give a speed boost along x-z plane if player is sliding
                     if(m_IsSliding)
                     {   
                         if (trueGroundSpeed < m_SlideJumpBoostSpeed){
