@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityStandardAssets.CrossPlatformInput;
 using UnityStandardAssets.Utility;
+using GrapplingHook;
 using Random = UnityEngine.Random;
 
 namespace UnityStandardAssets.Characters.FirstPerson
@@ -54,6 +55,20 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private float m_NextStep;
         private bool m_Jumping;
         private AudioSource m_AudioSource;
+        
+        public bool m_IsGrappling;
+        private GrapplingHookScript m_GrappleHookScript;
+        public float m_GrapplePullStrength;
+
+        public Vector3 moveDir
+        {
+            get { return m_MoveDir; }
+        }
+
+        public float height
+        {
+            get { return m_CharacterController.height; }
+        }
 
         // Use this for initialization
         private void Start()
@@ -70,6 +85,8 @@ namespace UnityStandardAssets.Characters.FirstPerson
 			m_MouseLook.Init(transform , m_Camera.transform);
             m_DoubleJumpAvailable = true;
             m_OriginalHeight = m_CharacterController.height;
+            m_IsGrappling = false;
+            m_GrappleHookScript = GetComponent<GrapplingHookScript>();
         }
 
 
@@ -171,7 +188,46 @@ namespace UnityStandardAssets.Characters.FirstPerson
             Vector3 XZGroundDir = new Vector3(m_MoveDir.x, 0, m_MoveDir.z);
             float trueGroundSpeed = Vector3.ProjectOnPlane(XZGroundDir, hitInfo.normal).magnitude;
 
-            if (m_CharacterController.isGrounded)
+            if (m_IsGrappling)
+            {   
+                // Give back a double jump
+                m_DoubleJumpAvailable = true;
+
+                if (m_Jump)
+                {
+                    if (m_MoveDir.y < m_JumpSpeed)
+                        m_MoveDir.y = m_JumpSpeed;
+                    PlayJumpSound();
+                    m_Jump = false;
+                    m_Jumping = true;
+                    m_GrappleHookScript.DestroyHook();
+                }
+                else
+                {
+                    // Player position to grapple shortens and possibly accelerates, add vector towards center
+                    // May need to store a variable to determine velocity strength since m_moveDir will be overwritten
+
+                    // Let's try this, just apply force towards the grapple point, this may be easier to do...
+                    Vector3 playerToGrapplePoint = (m_GrappleHookScript.currentHook.transform.position - transform.position).normalized;
+                    Vector3 grappleTension = -Vector3.Project(Physics.gravity * m_GravityMultiplier, playerToGrapplePoint.normalized);
+                    m_MoveDir += grappleTension * Time.fixedDeltaTime;
+                    m_MoveDir += Physics.gravity*m_GravityMultiplier*Time.fixedDeltaTime;
+
+                    // new problem, this just evens out the force, need to make distance between player and grapple point decreasing or static...
+                    if (Vector3.Dot(m_MoveDir, playerToGrapplePoint) < 0)
+                    {
+                        Vector3 additionalTensionNeeded = -Vector3.Project(m_MoveDir, playerToGrapplePoint);
+                        m_MoveDir += additionalTensionNeeded;
+                    }
+
+                    // Accelerate towards grapple point
+                    m_MoveDir += playerToGrapplePoint * Time.fixedDeltaTime * m_GrapplePullStrength;
+
+                    // Allow some player influence
+                    m_MoveDir +=  desiredMove * 0.5f;
+                }
+            }
+            else if (m_CharacterController.isGrounded)
             {
                 if (m_Jump)
                 {
@@ -222,7 +278,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_MoveDir.y = -m_StickToGroundForce;
                 }
             }
-            else
+            else    // Airborne
             {   
                 if(m_DoubleJumpAvailable && m_DoubleJump)  // Double Jump
                 {
@@ -317,7 +373,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
         private void PlayFootStepAudio()
         {
-            if (!m_CharacterController.isGrounded || m_IsSliding)
+            if (!m_CharacterController.isGrounded || m_IsSliding || m_IsGrappling)
             {
                 return;
             }
