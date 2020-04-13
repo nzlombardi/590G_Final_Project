@@ -4,10 +4,16 @@ using UnityEngine;
 
 public class TargetScript : MonoBehaviour {
 
-	public GameObject manager;
+	private GameObject manager;
 	
+	void Start(){
+		manager = GameObject.Find("GameManager");
+	}
+
 	void OnCollisionEnter(Collision target){
-		if(target.gameObject.name == "Rocket(Clone)"){
+		if(target.gameObject.name == "rocket"){
+			manager.GetComponent<ManagerScript>().score++;
+			Debug.Log("Target hit.");
 			Destroy(gameObject);
 		}
 	}

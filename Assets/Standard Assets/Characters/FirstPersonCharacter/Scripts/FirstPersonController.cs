@@ -20,7 +20,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private float m_RunSpeed;
         [SerializeField] [Range(0f, 1f)] private float m_RunstepLenghten;
         [SerializeField] private float m_JumpSpeed;
-        [SerializeField] private float m_airAccelerate = 30.0f;
+        [SerializeField] private float m_airAccelerate = 10.0f;
         [SerializeField] private float m_StickToGroundForce;
         [SerializeField] private float m_GravityMultiplier;
         [SerializeField] private MouseLook m_MouseLook;
@@ -33,6 +33,8 @@ namespace UnityStandardAssets.Characters.FirstPerson
         [SerializeField] private AudioClip[] m_FootstepSounds;    // an array of footstep sounds that will be randomly selected from.
         [SerializeField] private AudioClip m_JumpSound;           // the sound played when character leaves the ground.
         [SerializeField] private AudioClip m_LandSound;           // the sound played when character touches back on ground.
+
+        public bool m_RocketJump;
 
         private Camera m_Camera;
         private bool m_Crouch;
@@ -95,11 +97,18 @@ namespace UnityStandardAssets.Characters.FirstPerson
                 // it fixes a bug where the landing sound would play multiple times when sliding from a jump
                 m_MoveDir.y = -m_StickToGroundForce;
                 m_Jumping = false;
+                m_RocketJump = false;
                 m_DoubleJumpAvailable = true;
             }
             if (!m_CharacterController.isGrounded && !m_Jumping && m_PreviouslyGrounded)
             {
                 m_MoveDir.y = 0f;
+            }
+
+            if(m_RocketJump){
+                m_airAccelerate = 100.0f; 
+            }else{
+                m_airAccelerate = 30.0f;
             }
 
             UpdateCrouching();
@@ -244,6 +253,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_MoveDir.y = m_JumpSpeed;
                     PlayJumpSound();
                     m_DoubleJumpAvailable = false;
+                    m_RocketJump = false;
                 }
                 else
                 {   
@@ -406,7 +416,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
             m_MouseLook.LookRotation (transform, m_Camera.transform);
         }
 
-
+        
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody body = hit.collider.attachedRigidbody;
@@ -422,8 +432,19 @@ namespace UnityStandardAssets.Characters.FirstPerson
                 return;
             }
 
-            
             body.AddForceAtPosition(m_CharacterController.velocity*0.1f, hit.point, ForceMode.Impulse);
+        }
+
+        public void AddForce(Vector3 force){
+            m_MoveDir.x += force[0];
+            m_MoveDir.y += force[1];
+            m_MoveDir.z += force[2];
+        }
+
+        public void SetForce(Vector3 force){
+            m_MoveDir.x = force[0];
+            m_MoveDir.y = force[1];
+            m_MoveDir.z = force[2];
         }
     }
 }
