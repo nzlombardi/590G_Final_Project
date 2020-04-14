@@ -22,8 +22,9 @@ public class LauncherScript : MonoBehaviour {
 		if(Input.GetButtonDown("Fire1") && Time.time - last_fired > fire_delay){
 			Rigidbody projectile;
 			projectile = Instantiate(rocket, transform.position + transform.forward*0.5f, transform.rotation);
-			projectile.velocity = transform.TransformDirection(Vector3.forward * projectile_speed) + player_velocity;
-			Debug.Log("Projectile velocity: " + projectile.velocity.ToString() + " Player velocity: " + player_velocity.ToString());
+			projectile.name = "rocket";
+			projectile.velocity = transform.TransformDirection(Vector3.forward * projectile_speed);
+			//Debug.Log("Projectile velocity: " + projectile.velocity.ToString() + " Player velocity: " + player_velocity.ToString());
 			last_fired = Time.time;
 		}	
 	}
