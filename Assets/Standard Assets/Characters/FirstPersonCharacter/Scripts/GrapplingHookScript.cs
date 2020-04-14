@@ -15,7 +15,8 @@ namespace GrapplingHook
 		public Rigidbody currentHook;
 		public GameObject currentRope;
 		private HookScript currentHookScript;
-
+		public float grapplePullStrength;
+		public float grappleGravityMultiplier;
 		public Camera playerCamera;
 		public FirstPersonController playerController;
 
@@ -39,6 +40,8 @@ namespace GrapplingHook
 					// Create instance of rope
 					currentRope = 
 						Instantiate(ropePreset, playerController.transform.position + playerLookDirection*playerController.height/4.0f, Quaternion.Euler(playerLookDirection));
+					currentRope.transform.LookAt(currentHook.transform);
+					currentRope.transform.eulerAngles = currentRope.transform.eulerAngles + new Vector3(90.0f, 0.0f, 0.0f);	
 				}
 			}
 			else

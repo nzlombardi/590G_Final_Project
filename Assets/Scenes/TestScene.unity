@@ -453,6 +453,8 @@ MonoBehaviour:
   ropePreset: {fileID: 1605008767254840, guid: 30d3254ddf8fc42b8957883d6cb887c3, type: 2}
   currentHook: {fileID: 0}
   currentRope: {fileID: 0}
+  grapplePullStrength: 40
+  grappleGravityMultiplier: 0
   playerCamera: {fileID: 1155100706}
   playerController: {fileID: 390982409}
 --- !u!114 &390982409 stripped
@@ -640,6 +642,10 @@ Prefab:
     - target: {fileID: 11400000, guid: 5e9e851c0e142814dac026a256ba2ac0, type: 2}
       propertyPath: m_GrapplePullStrength
       value: 30
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400000, guid: 5e9e851c0e142814dac026a256ba2ac0, type: 2}
+      propertyPath: m_GrappleGravityMultiplier
+      value: 0.5
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_ParentPrefab: {fileID: 100100000, guid: 5e9e851c0e142814dac026a256ba2ac0, type: 2}

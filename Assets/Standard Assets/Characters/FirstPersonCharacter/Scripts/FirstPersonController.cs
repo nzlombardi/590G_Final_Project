@@ -58,7 +58,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
         
         public bool m_IsGrappling;
         private GrapplingHookScript m_GrappleHookScript;
-        public float m_GrapplePullStrength;
+        
 
         public Vector3 moveDir
         {
@@ -209,22 +209,23 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
                     // Let's try this, just apply force towards the grapple point, this may be easier to do...
                     Vector3 playerToGrapplePoint = (m_GrappleHookScript.currentHook.transform.position - transform.position).normalized;
-                    Vector3 grappleTension = -Vector3.Project(Physics.gravity * m_GravityMultiplier, playerToGrapplePoint.normalized);
+                    Vector3 grappleTension = -Vector3.Project(Physics.gravity * m_GravityMultiplier * m_GrappleHookScript.grappleGravityMultiplier, playerToGrapplePoint.normalized);
                     m_MoveDir += grappleTension * Time.fixedDeltaTime;
-                    m_MoveDir += Physics.gravity*m_GravityMultiplier*Time.fixedDeltaTime;
+                    m_MoveDir += Physics.gravity*m_GravityMultiplier*m_GrappleHookScript.grappleGravityMultiplier*Time.fixedDeltaTime;
 
                     // even out the force, need to make distance between player and grapple point decreasing or static...
                     if (Vector3.Dot(m_MoveDir, playerToGrapplePoint) < 0)
                     {
+                        Debug.Log("Adding extra impulse tension to rope");
                         Vector3 additionalTensionNeeded = -Vector3.Project(m_MoveDir, playerToGrapplePoint);
                         m_MoveDir += additionalTensionNeeded;
                     }
 
                     // Accelerate towards grapple point
-                    m_MoveDir += playerToGrapplePoint * Time.fixedDeltaTime * m_GrapplePullStrength;
+                    m_MoveDir += playerToGrapplePoint * Time.fixedDeltaTime * m_GrappleHookScript.grapplePullStrength;
 
                     // Allow some player influence
-                    m_MoveDir +=  desiredMove * 0.5f;
+                    m_MoveDir +=  desiredMove * 0.2f;
                 }
             }
             else if (m_CharacterController.isGrounded)
