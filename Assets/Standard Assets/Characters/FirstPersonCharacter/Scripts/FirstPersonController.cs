@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityStandardAssets.CrossPlatformInput;
 using UnityStandardAssets.Utility;
+using GrapplingHook;
 using Random = UnityEngine.Random;
 
 namespace UnityStandardAssets.Characters.FirstPerson
@@ -56,6 +57,20 @@ namespace UnityStandardAssets.Characters.FirstPerson
         private float m_NextStep;
         private bool m_Jumping;
         private AudioSource m_AudioSource;
+        
+        public bool m_IsGrappling;
+        private GrapplingHookScript m_GrappleHookScript;
+        
+
+        public Vector3 moveDir
+        {
+            get { return m_MoveDir; }
+        }
+
+        public float height
+        {
+            get { return m_CharacterController.height; }
+        }
 
         // Use this for initialization
         private void Start()
@@ -72,6 +87,8 @@ namespace UnityStandardAssets.Characters.FirstPerson
 			m_MouseLook.Init(transform , m_Camera.transform);
             m_DoubleJumpAvailable = true;
             m_OriginalHeight = m_CharacterController.height;
+            m_IsGrappling = false;
+            m_GrappleHookScript = GetComponent<GrapplingHookScript>();
         }
 
 
@@ -139,10 +156,11 @@ namespace UnityStandardAssets.Characters.FirstPerson
                                 // The value of 2f is arbitrary, need to find a better value
                 if(!ceilingAbove)
                 {
+                    float halfHeightDiff = (m_OriginalHeight - m_CharacterController.height) / 2.0f;
+                    
                     m_IsCrouching = false;
                     m_CharacterController.height = m_OriginalHeight;
-                    float heightDiff = m_OriginalHeight - m_CharacterController.height;
-                    transform.position += new Vector3(0, heightDiff/2, 0);
+                    transform.position += new Vector3(0, halfHeightDiff, 0);
                     m_CenterCameraPosition = m_Camera.transform.localPosition;
                 }
             }
@@ -179,7 +197,47 @@ namespace UnityStandardAssets.Characters.FirstPerson
             Vector3 XZGroundDir = new Vector3(m_MoveDir.x, 0, m_MoveDir.z);
             float trueGroundSpeed = Vector3.ProjectOnPlane(XZGroundDir, hitInfo.normal).magnitude;
 
-            if (m_CharacterController.isGrounded)
+            if (m_IsGrappling)
+            {   
+                // Give back a double jump
+                m_DoubleJumpAvailable = true;
+
+                if (m_Jump)
+                {
+                    if (m_MoveDir.y < m_JumpSpeed)
+                        m_MoveDir.y = m_JumpSpeed;
+                    PlayJumpSound();
+                    m_Jump = false;
+                    m_Jumping = true;
+                    m_GrappleHookScript.DestroyHook();
+                }
+                else
+                {
+                    // Player position to grapple shortens and possibly accelerates, add vector towards center
+                    // May need to store a variable to determine velocity strength since m_moveDir will be overwritten
+
+                    // Let's try this, just apply force towards the grapple point, this may be easier to do...
+                    Vector3 playerToGrapplePoint = (m_GrappleHookScript.currentHook.transform.position - transform.position).normalized;
+                    Vector3 grappleTension = -Vector3.Project(Physics.gravity * m_GravityMultiplier * m_GrappleHookScript.grappleGravityMultiplier, playerToGrapplePoint.normalized);
+                    m_MoveDir += grappleTension * Time.fixedDeltaTime;
+                    m_MoveDir += Physics.gravity*m_GravityMultiplier*m_GrappleHookScript.grappleGravityMultiplier*Time.fixedDeltaTime;
+
+                    // even out the force, need to make distance between player and grapple point decreasing or static...
+                    if (Vector3.Dot(m_MoveDir, playerToGrapplePoint) < 0)
+                    {
+                        Debug.Log("Adding extra impulse tension to rope");
+                        Vector3 additionalTensionNeeded = -Vector3.Project(m_MoveDir, playerToGrapplePoint);
+                        m_MoveDir += additionalTensionNeeded;
+                    }
+
+                    // Accelerate towards grapple point
+                    m_MoveDir += playerToGrapplePoint * Time.fixedDeltaTime * m_GrappleHookScript.grapplePullStrength;
+
+                    // Allow some player influence
+                    m_MoveDir +=  desiredMove * 0.2f;
+                }
+            }
+            else if (m_CharacterController.isGrounded)
             {
                 if (m_Jump)
                 {
@@ -188,7 +246,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_Jump = false;
                     m_Jumping = true;
 
-                    // Give a speed boost along x-z plane
+                    // Give a speed boost along x-z plane if player is sliding
                     if(m_IsSliding)
                     {   
                         if (trueGroundSpeed < m_SlideJumpBoostSpeed){
@@ -230,7 +288,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
                     m_MoveDir.y = -m_StickToGroundForce;
                 }
             }
-            else
+            else    // Airborne
             {   
                 if(m_DoubleJumpAvailable && m_DoubleJump)  // Double Jump
                 {
@@ -326,7 +384,7 @@ namespace UnityStandardAssets.Characters.FirstPerson
 
         private void PlayFootStepAudio()
         {
-            if (!m_CharacterController.isGrounded || m_IsSliding)
+            if (!m_CharacterController.isGrounded || m_IsSliding || m_IsGrappling)
             {
                 return;
             }
